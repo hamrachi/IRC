@@ -6,7 +6,7 @@
 /*   By: hamrachi <hamrachi@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/26 19:01:02 by hamrachi          #+#    #+#             */
-/*   Updated: 2025/09/04 21:01:31 by hamrachi         ###   ########.fr       */
+/*   Updated: 2025/09/07 01:21:44 by hamrachi         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -38,6 +38,8 @@ private:
     bool _registered;
 
     std::string _recvBuf;
+    std::string _sendBuf;   // for outgoing data
+    size_t      _sendOff;   // how much of _sendBuf already sent
 
 public:
     Client(int fd = -1, const std::string& ip = "");
@@ -55,6 +57,15 @@ public:
     void setRegistered(bool r) { _registered = r; }
     void feed(const char* data, size_t n, std::vector<std::string>& outLines);
     IRCMessage parseLine(const std::string &line);
+    void appendSend(const std::string& line);
+     bool hasPending() const;
+    const char* pendingData() const;
+    size_t pendingSize() const;
+    void advanceSent(size_t n);
+
+    // === numeric replies (non-static version)
+    std::string buildNumeric(const std::string& serverName, int code, const std::string& target, const std::string& text);
+    bool tryFinishRegistration();
 };
 
 #endif

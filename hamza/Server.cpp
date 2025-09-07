@@ -6,7 +6,7 @@
 /*   By: hamrachi <hamrachi@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/26 18:32:13 by hamrachi          #+#    #+#             */
-/*   Updated: 2025/09/06 22:01:45 by hamrachi         ###   ########.fr       */
+/*   Updated: 2025/09/07 02:01:29 by hamrachi         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -18,10 +18,54 @@ Server::Server(const std::string &name, int port, const std::string &pass) : _li
              // _listenFd;
              // _port;
                             };
+            
+void Server::sendWelcome(Client& cli) 
+{
+    const std::string nick = cli.getNick();
+
+    // 001 RPL_WELCOME
+    sendLine(cli, cli.buildNumeric(_name, 001, nick,
+        "Welcome to the ft_irc server, " + nick));
+
+    // 002 RPL_YOURHOST
+    sendLine(cli, cli.buildNumeric(_name, 002, nick,
+        "Your host is " + _name));
+
+    // 003 RPL_CREATED
+    sendLine(cli, cli.buildNumeric(_name, 003, nick,
+        "This server was created just now"));
+
+    // 004 RPL_MYINFO
+    sendLine(cli, cli.buildNumeric(_name, 004, nick,
+        _name + " ft_irc o o"));
+
+    // ---- Minimal MOTD (subject requires MOTD or ERR_NOMOTD) ----
+    sendLine(cli, ":" + _name + " 375 " + nick + " :- Message of the Day -");
+    sendLine(cli, ":" + _name + " 372 " + nick + " :- Welcome to ft_irc!");
+    sendLine(cli, ":" + _name + " 376 " + nick + " :End of /MOTD command.");
+}
 
 
+
+void Server::sendLine(Client& cli, const std::string& line) 
+{
+    cli.appendSend(line);
+
+    int fd = cli.getFd();
+    size_t i = 0;
+    while (i < pfds.size()) 
+    {
+        if (pfds[i].fd == fd) 
+        {
+            pfds[i].events |= POLLOUT;
+            break;
+        }
+        ++i;
+    }
+}
 
 void Server::handleMessage(Client& cli, const IRCMessage& m) {
+    
     const std::string cmd = m.command;
 
     // ===== PASS =====
@@ -37,6 +81,7 @@ void Server::handleMessage(Client& cli, const IRCMessage& m) {
             sendLine(cli, cli.buildNumeric(_name, 461, "*", "PASS :Not enough parameters"));
             return;
         }
+        
         if (m.params[0] == _passWord) 
         {
             cli.setPassOk(true);
@@ -47,7 +92,7 @@ void Server::handleMessage(Client& cli, const IRCMessage& m) {
             removeClient(cli.getFd());
             return;
         }
-        if (cli.tryFinishRegistration()) 
+        if (cli.tryFinishRegistration())
         {
             sendWelcome(cli);
         }
@@ -229,7 +274,7 @@ void Server::acceptNewClient(std::vector<struct pollfd> &pfds) {
 
     _clients[cfd] = Client(cfd, ip);
 
-    std::cout << "new client: fd=" << cfd << " ip=" << ip << std::endl;
+    // std::cout << "new client: fd=" << cfd << " ip=" << ip << std::endl;
 
     struct pollfd c;
     c.fd = cfd;
@@ -241,48 +286,102 @@ void Server::acceptNewClient(std::vector<struct pollfd> &pfds) {
 
 void Server::run()
 {
-
     try
     {
+        // add the listening socket to poll list
         struct pollfd lp;
         lp.fd = _listenFd;
         lp.events = POLLIN;
         lp.revents = 0;
         pfds.push_back(lp);
-        std::cout << _listenFd << std::endl;
+
+        std::cout << "Server listening on fd=" << _listenFd << std::endl;
+
         while (true)
         {
             int ret = ::poll(&pfds[0], pfds.size(), -1);
-            // hnaya kaytfrizza kaytsna server ikon pollin lihiya jayah chi datat mn socket okher
-            //std::cout <<"DAZ LFREEZ"<<std::endl;
             if (ret < 0)
             {
                 throw std::runtime_error("poll() failed");
             }
+
             size_t i = 0;
             while (i < pfds.size())
             {
-                if (pfds[i].revents & POLLIN)
-                {
-                    if (pfds[i].fd == _listenFd)
+                int fd  = pfds[i].fd;
+                int rev = pfds[i].revents;
+                bool removed = false;
+
+                // === 1) error / hangup → remove client
+                if ((rev & POLLERR) || (rev & POLLHUP) || (rev & POLLNVAL)) {
+                    if (fd != _listenFd) 
                     {
-                       // printf("lawla\n");
+                        removeClient(fd);
+                        removed = true;
+                    }
+                }
+
+                // === 2) readable?
+                if (!removed && (rev & POLLIN)) 
+                {
+                    if (fd == _listenFd)
+                    {
+                        // new connection
+                        
                         acceptNewClient(pfds);
                     }
                     else
                     {
-                       // printf("tanya\n");
-                        receiveFromClient(pfds[i].fd);
+                        // client sent data
+                        receiveFromClient(fd);
+                        if (_clients.find(fd) == _clients.end()) 
+                        {
+                            removed = true; // client was removed inside
+                        }
                     }
                 }
-                ++i;
+
+                // === 3) writable? flush outgoing buffer
+                if (!removed && (rev & POLLOUT) && fd != _listenFd) {
+                    Client &cli = _clients[fd];
+
+                    while (cli.hasPending()) 
+                    {
+                        const char* data = cli.pendingData();
+                        size_t      left = cli.pendingSize();
+                        if (!data || left == 0) 
+                            break;
+
+                        ssize_t w = ::send(fd, data, left, 0);
+                        if (w > 0) 
+                        {
+                            cli.advanceSent(static_cast<size_t>(w));
+                        } 
+                        else 
+                        {
+                            removeClient(fd);
+                            removed = true;
+                            break;
+                        }
+                    }
+
+                    if (!removed && !cli.hasPending()) {
+                        pfds[i].events &= ~POLLOUT;
+                    }
+                }
+
+                if (!removed) 
+                {
+                    ++i; // move to next fd
+                }
             }
         }
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Error in run: " << e.what() << std::endl;
+        std::cerr << "Error in run(): " << e.what() << std::endl;
     }
+
 };
 
 void Server::initSocket()
