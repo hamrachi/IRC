@@ -6,7 +6,7 @@
 /*   By: hamrachi <hamrachi@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/26 18:32:13 by hamrachi          #+#    #+#             */
-/*   Updated: 2025/09/07 02:01:29 by hamrachi         ###   ########.fr       */
+/*   Updated: 2025/09/09 00:48:58 by hamrachi         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -18,6 +18,46 @@ Server::Server(const std::string &name, int port, const std::string &pass) : _li
              // _listenFd;
              // _port;
                             };
+
+// Allow at least: alnum, []{}\| and '-' ; forbid leading '#', ':', and space.
+// (This satisfies the subject: servers MUST allow the listed set; we allow a bit extra like '-')
+bool Server::isValidNick(const std::string& s) const {
+    if (s.empty()) return false;
+
+    // no leading chantype ('#'), no leading ':', no space
+    char c0 = s[0];
+    if (c0 == '#' || c0 == ':' || c0 == ' ') return false;
+
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char ch = static_cast<unsigned char>(s[i]);
+        if (std::isalnum(ch)) { ++i; continue; }
+        if (ch == '[' || ch == ']' || ch == '{' || ch == '}' ||
+            ch == '\\' || ch == '|' || ch == '-') {
+            ++i; continue;
+        }
+        // forbid ASCII space
+        if (ch == ' ') return false;
+        // anything else → invalid
+        return false;
+    }
+    return true;
+}
+
+bool Server::isNickTaken(const std::string& s, int exceptFd) const {
+    std::map<int, Client>::const_iterator it = _clients.begin();
+    while (it != _clients.end()) {
+        if (it->first != exceptFd) {
+            const std::string& other = it->second.getNick();
+            if (!other.empty() && other == s) {
+                return true;
+            }
+        }
+        ++it;
+    }
+    return false;
+}
+
             
 void Server::sendWelcome(Client& cli) 
 {
@@ -67,68 +107,129 @@ void Server::sendLine(Client& cli, const std::string& line)
 void Server::handleMessage(Client& cli, const IRCMessage& m) {
     
     const std::string cmd = m.command;
+    const bool passRequired = !_passWord.empty();
 
     // ===== PASS =====
-    if (cmd == "PASS") 
-    {
-        if (cli.getRegistered()) 
-        {
-            sendLine(cli, cli.buildNumeric(_name, 462, cli.getNick(), "You may not reregister"));
-            return;
-        }
-        if (m.params.empty()) 
-        {
-            sendLine(cli, cli.buildNumeric(_name, 461, "*", "PASS :Not enough parameters"));
-            return;
-        }
-        
-        if (m.params[0] == _passWord) 
-        {
-            cli.setPassOk(true);
-        } 
-        else 
-        {
-            sendLine(cli, cli.buildNumeric(_name, 464, "*", "Password incorrect"));
-            removeClient(cli.getFd());
-            return;
-        }
-        if (cli.tryFinishRegistration())
-        {
-            sendWelcome(cli);
-        }
+    if (cmd == "PASS") {
+    // Already registered? --> 462
+    if (cli.getRegistered()) {
+        sendLine(cli, cli.buildNumeric(_name, 462, cli.getNick(), "You may not reregister"));
         return;
     }
 
-    // ===== NICK =====
-    if (cmd == "NICK") 
-    {
-        if (m.params.empty()) 
-        {
-            sendLine(cli, cli.buildNumeric(_name, 461, "*", "NICK :Not enough parameters"));
-            return;
-        }
-        // TODO: check validity/uniqueness
-        cli.setNick(m.params[0]);
-        if (cli.tryFinishRegistration()) 
-        {
-            sendWelcome(cli);
-        }
+    // Need param --> 461
+    if (m.params.empty()) {
+        sendLine(cli, cli.buildNumeric(_name, 461, "*", "PASS :Not enough parameters"));
         return;
     }
+
+    // Only the LAST PASS before registration is used:
+    // set passOk based on the latest value (true if matches, false if not)
+    if (m.params[0] == _passWord) {
+        cli.setPassOk(true);
+    } else {
+        cli.setPassOk(false);
+        // Wrong password --> 464 (do NOT close; allow retry per subject)
+        sendLine(cli, cli.buildNumeric(_name, 464, "*", "Password incorrect"));
+        return;
+    }
+
+    // If NICK+USER were already provided, this may finish registration
+    if (cli.tryFinishRegistration()) {
+        sendWelcome(cli);
+    }
+    return;
+}
+
+// helper: is password required by server?
+
+   // ===== NICK =====
+// 
+if (cmd == "NICK") {
+    // 431: no parameter
+    if (m.params.empty()) {
+        sendLine(cli, cli.buildNumeric(_name, 431, "*", "No nickname given"));
+        return;
+    }
+if (m.params.size() != 1) {
+    // too many or too few params
+    sendLine(cli, cli.buildNumeric(_name, 432, "*", "Erroneous nickname"));
+    return;
+}
+
+    const std::string newNick = m.params[0];
+
+    // 432: invalid nickname
+    if (!isValidNick(newNick)) {
+        sendLine(cli, ":" + _name + " 432 * " + newNick + " :Erroneous nickname");
+        return;
+    }
+
+    // 433: already in use
+    if (isNickTaken(newNick, cli.getFd())) {
+        sendLine(cli, ":" + _name + " 433 * " + newNick + " :Nickname is already in use");
+        return;
+    }
+
+    // === check PASS requirement ===
+    const bool passRequired = !_passWord.empty();
+    if (passRequired && !cli.getPassOk()) {
+        // accept the nick but don’t allow registration yet
+        cli.setNick(newNick);
+        sendLine(cli, cli.buildNumeric(_name, 464, "*", "Password required before registration"));
+        return;
+    }
+
+    // accept the nick
+    cli.setNick(newNick);
+
+    // if all conditions are now OK → finish registration
+    if (cli.tryFinishRegistration()) {
+        sendWelcome(cli);
+    }
+    return;
+}
+
 
     // ===== USER =====
-    if (cmd == "USER") {
-        if (m.params.size() < 4) {
-            sendLine(cli, cli.buildNumeric(_name, 461, "*", "USER :Not enough parameters"));
-            return;
-        }
-        // USER <username> 0 * :<realname>
-        cli.setUser(m.params[0], m.params[3]);
-        if (cli.tryFinishRegistration()) {
-            sendWelcome(cli);
-        }
+// ===== USER =====
+if (cmd == "USER") {
+    // 462: already registered
+    if (cli.getRegistered()) {
+        sendLine(cli, cli.buildNumeric(_name, 462, cli.getNick(), "You may not reregister"));
         return;
     }
+
+    // Need at least 4 params: <username> <mode/0> <unused/*> :<realname>
+    if (m.params.size() < 4) {
+        sendLine(cli, cli.buildNumeric(_name, 461, "*", "USER :Not enough parameters"));
+        return;
+    }
+
+    // Extract username and realname.
+    // parseLine already merges trailing into a single last param,
+    // so realname is params.back().
+    const std::string username = m.params[0];
+    const std::string realname = m.params[m.params.size() - 1];
+
+    // Store fields (do not force-check m.params[1], m.params[2]; they are SHOULD)
+    cli.setUser(username, realname);
+
+    // If a server password is configured, do not complete registration until PASS is OK
+    
+    if (passRequired && !cli.getPassOk()) {
+        // Optional hint; keeps behavior friendly without violating MUSTs
+        sendLine(cli, cli.buildNumeric(_name, 464, "*", "Password required before registration"));
+        return;
+    }
+
+    // Try to finish registration if PASS + NICK + USER are all set
+    if (cli.tryFinishRegistration()) {
+        sendWelcome(cli); // 001..004 + 005 and MOTD/422
+    }
+    return;
+}
+
 
     // ===== block non-auth commands until registered =====
     if (!cli.getRegistered()) {

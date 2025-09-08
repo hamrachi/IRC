@@ -6,7 +6,7 @@
 /*   By: hamrachi <hamrachi@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/26 19:01:02 by hamrachi          #+#    #+#             */
-/*   Updated: 2025/09/07 01:21:44 by hamrachi         ###   ########.fr       */
+/*   Updated: 2025/09/08 22:57:08 by hamrachi         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -49,6 +49,8 @@ public:
     const std::string& getIp() const { return _ip; }
     const std::string& getNick() const { return _nick; }
     bool getRegistered() const { return _registered; }
+    bool getPassOk() const { return _passOk; }
+
 
     // Setters
     void setNick(const std::string& n) { _nick = n; _hasNick = true; }

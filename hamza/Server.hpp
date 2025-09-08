@@ -6,7 +6,7 @@
 /*   By: hamrachi <hamrachi@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/26 18:32:07 by hamrachi          #+#    #+#             */
-/*   Updated: 2025/09/07 01:24:06 by hamrachi         ###   ########.fr       */
+/*   Updated: 2025/09/09 00:02:16 by hamrachi         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -52,6 +52,9 @@ class Server{
     void handleMessage(Client& cli, const IRCMessage& m);
     void sendLine(Client& cli, const std::string& line);
     void sendWelcome(Client& cli);
+    bool isValidNick(const std::string& s) const;
+    bool isNickTaken(const std::string& s, int exceptFd) const;
+
     
 };
 

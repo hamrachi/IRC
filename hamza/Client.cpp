@@ -6,7 +6,7 @@
 /*   By: hamrachi <hamrachi@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/28 19:38:11 by hamrachi          #+#    #+#             */
-/*   Updated: 2025/09/07 01:52:59 by hamrachi         ###   ########.fr       */
+/*   Updated: 2025/09/08 22:16:50 by hamrachi         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -93,16 +93,16 @@ bool Client::tryFinishRegistration() {
 
 
 
-static std::string toUpperCopy(const std::string& s) {
-    std::string r = s;
-    size_t i = 0;
-    while (i < r.size()) 
-    {
-        r[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(r[i])));
-        ++i;
-    }
-    return r;
-}
+// static std::string toUpperCopy(const std::string& s) {
+//     std::string r = s;
+//     size_t i = 0;
+//     while (i < r.size()) 
+//     {
+//         r[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(r[i])));
+//         ++i;
+//     }
+//     return r;
+// }
 
 IRCMessage Client::parseLine(const std::string &line)
 {
@@ -163,7 +163,7 @@ IRCMessage Client::parseLine(const std::string &line)
 
     if (!tokens.empty())
     {
-        msg.command = toUpperCopy(tokens[0]);
+        msg.command = tokens[0];
         size_t k = 1;
         while (k < tokens.size())
         {
