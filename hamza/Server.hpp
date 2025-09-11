@@ -10,7 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-#ifndef  SERVER_HPP
+#ifndef SERVER_HPP
 #define SERVER_HPP
 
 #include <string>
@@ -28,10 +28,9 @@
 
 class Client;
 class Channel;
-class Server{
 
-    
-    private:
+class Server{
+private:
     int _listenFd;
     std::string _name;
     int _port;
@@ -41,8 +40,7 @@ class Server{
     std::vector<struct pollfd> pfds;
     struct sockaddr_in _claddr;
 
-    
-    public:
+public:
     Server(const std::string& name, int port, const std::string& pass);
     void run();
     void initSocket();
@@ -55,7 +53,11 @@ class Server{
     bool isValidNick(const std::string& s) const;
     bool isNickTaken(const std::string& s, int exceptFd) const;
 
-    
+    // channel commands
+    void handleInvite(Client& requester, const std::string& chanName, const std::string& nickTarget);
+    void handleKick(Client& requester, const std::string& chanName, const std::string& nickTarget, const std::string& reason = "");
+    void handleMode(Client& requester, const std::string& chanName, const std::string& modes, const std::string& param = "");
+    void handleTopic(Client& requester, const std::string& chanName, const std::string& newTopic = "");
 };
 
 #endif

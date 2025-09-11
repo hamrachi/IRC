@@ -15,7 +15,7 @@
 #include <iostream>
 #include <cctype> 
 #include <sstream>
-
+#include <cstdio>
 Client::Client(int fd, const std::string &ip) : _fd(fd), _ip(ip), _nick(""), _user(""), _realname(""),
                                                 _passOk(false), _hasNick(false), _hasUser(false), _registered(false), _recvBuf("") ,_sendBuf("") ,_sendOff(0) {}
 
@@ -180,7 +180,7 @@ void Client::feed(const char *data, size_t n, std::vector<std::string> &outLines
         return;
 
     // 1) append new bytes
-    printf("data from feed: %s\n", data);
+    // printf("data from feed: %s\n", data);
     _recvBuf.append(data, n);
 
     // 2) normalize line endings:
