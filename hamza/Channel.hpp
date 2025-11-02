@@ -22,6 +22,7 @@ private:
     std::string _name;
     std::set<int> _clients;        // client FDs
     std::set<int> _operators;      // client FDs with operator privileges
+    std::set<int> _invited;        // client FDs invited to the channel
     std::string _topic;
     std::string _key;              // password
     size_t _limit;                 // user limit
@@ -56,6 +57,10 @@ public:
 
     void setTopicOnlyOps(bool b) { _topicOnlyOps = b; }
     bool getTopicOnlyOps() const { return _topicOnlyOps; }
+
+    void addInvite(int fd) { _invited.insert(fd); }
+    void removeInvite(int fd) { _invited.erase(fd); }
+    bool isInvited(int fd) const { return _invited.count(fd); }
 };
 
 #endif

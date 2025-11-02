@@ -48,6 +48,8 @@ public:
     int getFd() const { return _fd; }
     const std::string& getIp() const { return _ip; }
     const std::string& getNick() const { return _nick; }
+    const std::string& getUser() const { return _user; }
+    const std::string& getRealName() const { return _realname; }
     bool getRegistered() const { return _registered; }
     bool getPassOk() const { return _passOk; }
 

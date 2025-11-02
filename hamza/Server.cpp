@@ -176,27 +176,69 @@ void Server::handleMessage(Client& cli, const IRCMessage& m) {
         }
         if (chanName[0] != '#') chanName = "#" + chanName;
 
+        bool chanExists = (_channels.find(chanName) != _channels.end());
         Channel &chan = _channels[chanName];
         if (chan.getName().empty()) {
             // default-constructed; initialize it
             chan = Channel(chanName);
         }
 
+        // Check if user is already on the channel
+        if (chan.hasClient(cli.getFd())) {
+            return; // Already on channel, silently ignore
+        }
+
+        // Check invite-only mode (+i)
+        if (chan.getInviteOnly() && !chan.isInvited(cli.getFd())) {
+            sendLine(cli, cli.buildNumeric(_name, 473, cli.getNick(), chanName + " :Cannot join channel (+i)"));
+            return;
+        }
+
+        // Check channel key (+k)
+        if (!chan.getKey().empty()) {
+            std::string providedKey;
+            if (m.params.size() > 1) {
+                providedKey = m.params[1];
+            }
+            if (providedKey != chan.getKey()) {
+                sendLine(cli, cli.buildNumeric(_name, 475, cli.getNick(), chanName + " :Cannot join channel (+k)"));
+                return;
+            }
+        }
+
+        // Check user limit (+l)
+        if (chan.getLimit() > 0 && chan.getClients().size() >= chan.getLimit()) {
+            sendLine(cli, cli.buildNumeric(_name, 471, cli.getNick(), chanName + " :Cannot join channel (+l)"));
+            return;
+        }
+
+        // If channel is new or empty, make the joiner an operator
+        if (!chanExists || chan.getClients().empty()) {
+            chan.addOperator(cli.getFd());
+        }
+
         chan.addClient(cli.getFd());
+        // Remove from invited list if they were invited
+        chan.removeInvite(cli.getFd());
 
         // announce to the joiner
-        sendLine(cli, ":" + cli.getNick() + "!" + cli.getNick() + "@" + cli.getIp() +
+        sendLine(cli, ":" + cli.getNick() + "!" + cli.getUser() + "@" + cli.getIp() +
                       " JOIN " + chanName);
 
+        // Send topic or no topic
         if (!chan.getTopic().empty()) {
             sendLine(cli, cli.buildNumeric(_name, 332, cli.getNick(), chanName + " :" + chan.getTopic()));
         } else {
             sendLine(cli, cli.buildNumeric(_name, 331, cli.getNick(), chanName + " :No topic is set"));
         }
 
+        // Send NAMES list
         std::string names;
         const std::set<int>& members = chan.getClients();
         for (std::set<int>::const_iterator it = members.begin(); it != members.end(); ++it) {
+            if (chan.isOperator(*it)) {
+                names += "@";
+            }
             names += _clients[*it].getNick() + " ";
         }
         sendLine(cli, cli.buildNumeric(_name, 353, cli.getNick(), "= " + chanName + " :" + names));
@@ -232,7 +274,7 @@ void Server::handleMessage(Client& cli, const IRCMessage& m) {
             for (std::set<int>::const_iterator mit = members.begin(); mit != members.end(); ++mit) {
                 if (*mit == cli.getFd()) continue;
                 Client &other = _clients[*mit];
-                sendLine(other, ":" + cli.getNick() + "!" + cli.getNick() + "@" + cli.getIp() +
+                sendLine(other, ":" + cli.getNick() + "!" + cli.getUser() + "@" + cli.getIp() +
                                   " PRIVMSG " + target + " :" + text);
             }
             return;
@@ -241,7 +283,7 @@ void Server::handleMessage(Client& cli, const IRCMessage& m) {
         // user target
         for (std::map<int, Client>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
             if (it->second.getNick() == target) {
-                sendLine(it->second, ":" + cli.getNick() + "!" + cli.getNick() + "@" + cli.getIp() +
+                sendLine(it->second, ":" + cli.getNick() + "!" + cli.getUser() + "@" + cli.getIp() +
                                       " PRIVMSG " + target + " :" + text);
                 return;
             }
@@ -251,23 +293,219 @@ void Server::handleMessage(Client& cli, const IRCMessage& m) {
         return;
     }
 
+    /* ===== PART ===== */
+    if (cmd == "PART") {
+        if (m.params.empty()) {
+            sendLine(cli, cli.buildNumeric(_name, 461, cli.getNick(), "PART :Not enough parameters"));
+            return;
+        }
+
+        std::string chanName = m.params[0];
+        std::string reason;
+        if (m.params.size() > 1) {
+            reason = m.params[1];
+        }
+
+        std::map<std::string, Channel>::iterator it = _channels.find(chanName);
+        if (it == _channels.end()) {
+            sendLine(cli, cli.buildNumeric(_name, 403, cli.getNick(), chanName + " :No such channel"));
+            return;
+        }
+
+        Channel &chan = it->second;
+        if (!chan.hasClient(cli.getFd())) {
+            sendLine(cli, cli.buildNumeric(_name, 442, cli.getNick(), chanName + " :You're not on that channel"));
+            return;
+        }
+
+        // Broadcast PART to all channel members including the leaving user
+        const std::set<int>& members = chan.getClients();
+        for (std::set<int>::const_iterator mit = members.begin(); mit != members.end(); ++mit) {
+            Client &other = _clients[*mit];
+            if (reason.empty()) {
+                sendLine(other, ":" + cli.getNick() + "!" + cli.getUser() + "@" + cli.getIp() +
+                                  " PART " + chanName);
+            } else {
+                sendLine(other, ":" + cli.getNick() + "!" + cli.getUser() + "@" + cli.getIp() +
+                                  " PART " + chanName + " :" + reason);
+            }
+        }
+
+        chan.removeClient(cli.getFd());
+        // Remove empty channels
+        if (chan.getClients().empty()) {
+            _channels.erase(it);
+        }
+        return;
+    }
+
+    /* ===== TOPIC ===== */
+    if (cmd == "TOPIC") {
+        if (m.params.empty()) {
+            sendLine(cli, cli.buildNumeric(_name, 461, cli.getNick(), "TOPIC :Not enough parameters"));
+            return;
+        }
+
+        std::string chanName = m.params[0];
+        std::string newTopic;
+        if (m.params.size() > 1) {
+            newTopic = m.params[1];
+        }
+
+        handleTopic(cli, chanName, newTopic);
+        return;
+    }
+
+    /* ===== INVITE ===== */
+    if (cmd == "INVITE") {
+        if (m.params.size() < 2) {
+            sendLine(cli, cli.buildNumeric(_name, 461, cli.getNick(), "INVITE :Not enough parameters"));
+            return;
+        }
+
+        std::string nickTarget = m.params[0];
+        std::string chanName = m.params[1];
+
+        handleInvite(cli, chanName, nickTarget);
+        return;
+    }
+
+    /* ===== KICK ===== */
+    if (cmd == "KICK") {
+        if (m.params.size() < 2) {
+            sendLine(cli, cli.buildNumeric(_name, 461, cli.getNick(), "KICK :Not enough parameters"));
+            return;
+        }
+
+        std::string chanName = m.params[0];
+        std::string nickTarget = m.params[1];
+        std::string reason;
+        if (m.params.size() > 2) {
+            reason = m.params[2];
+        }
+
+        handleKick(cli, chanName, nickTarget, reason);
+        return;
+    }
+
+    /* ===== MODE ===== */
+    if (cmd == "MODE") {
+        if (m.params.empty()) {
+            sendLine(cli, cli.buildNumeric(_name, 461, cli.getNick(), "MODE :Not enough parameters"));
+            return;
+        }
+
+        std::string target = m.params[0];
+        
+        // User mode (target is a nickname)
+        if (target[0] != '#') {
+            // Simple user mode response
+            if (m.params.size() == 1) {
+                sendLine(cli, cli.buildNumeric(_name, 221, cli.getNick(), "+"));
+            }
+            return;
+        }
+
+        // Channel mode
+        if (m.params.size() < 2) {
+            // Query mode - RPL_CHANNELMODEIS
+            std::map<std::string, Channel>::iterator it = _channels.find(target);
+            if (it == _channels.end()) {
+                sendLine(cli, cli.buildNumeric(_name, 403, cli.getNick(), target + " :No such channel"));
+                return;
+            }
+            // Return current modes (simplified)
+            sendLine(cli, ":" + _name + " 324 " + cli.getNick() + " " + target + " +nt");
+            return;
+        }
+
+        std::string modes = m.params[1];
+        std::string param;
+        if (m.params.size() > 2) {
+            param = m.params[2];
+        }
+
+        handleMode(cli, target, modes, param);
+        return;
+    }
+
+    /* ===== PING ===== */
+    if (cmd == "PING") {
+        if (m.params.empty()) {
+            sendLine(cli, cli.buildNumeric(_name, 409, cli.getNick(), "No origin specified"));
+            return;
+        }
+        // Reply with PONG
+        sendLine(cli, ":" + _name + " PONG " + _name + " :" + m.params[0]);
+        return;
+    }
+
+    /* ===== PONG ===== */
+    if (cmd == "PONG") {
+        // Just acknowledge, no action needed
+        return;
+    }
+
+    /* ===== QUIT ===== */
+    if (cmd == "QUIT") {
+        std::string reason = "Client quit";
+        if (!m.params.empty()) {
+            reason = "Quit: " + m.params[0];
+        }
+
+        // Broadcast QUIT to all channels the user is in
+        std::set<int> notifiedClients;
+        for (std::map<std::string, Channel>::iterator chanIt = _channels.begin(); 
+             chanIt != _channels.end(); ++chanIt) {
+            Channel &chan = chanIt->second;
+            if (chan.hasClient(cli.getFd())) {
+                const std::set<int>& members = chan.getClients();
+                for (std::set<int>::const_iterator mit = members.begin(); mit != members.end(); ++mit) {
+                    if (*mit != cli.getFd() && notifiedClients.find(*mit) == notifiedClients.end()) {
+                        Client &other = _clients[*mit];
+                        sendLine(other, ":" + cli.getNick() + "!" + cli.getUser() + "@" + cli.getIp() +
+                                          " QUIT :" + reason);
+                        notifiedClients.insert(*mit);
+                    }
+                }
+                chan.removeClient(cli.getFd());
+            }
+        }
+
+        // Send ERROR to the quitting client
+        sendLine(cli, "ERROR :Closing Link: " + cli.getIp() + " (" + reason + ")");
+        
+        // Mark for removal
+        removeClient(cli.getFd());
+        return;
+    }
+
     /* not implemented */
     sendLine(cli, cli.buildNumeric(_name, 421, cli.getNick(), cmd + " :Unknown command"));
 }
 
 /* INVITE */
 void Server::handleInvite(Client& requester, const std::string& chanName, const std::string& nickTarget) {
+    // Find the channel
     if (_channels.find(chanName) == _channels.end()) {
         sendLine(requester, requester.buildNumeric(_name, 403, requester.getNick(), chanName + " :No such channel"));
         return;
     }
     Channel& chan = _channels[chanName];
 
-    if (!chan.isOperator(requester.getFd())) {
+    // Requester must be on the channel
+    if (!chan.hasClient(requester.getFd())) {
+        sendLine(requester, requester.buildNumeric(_name, 442, requester.getNick(), chanName + " :You're not on that channel"));
+        return;
+    }
+
+    // For invite-only channels, must be operator
+    if (chan.getInviteOnly() && !chan.isOperator(requester.getFd())) {
         sendLine(requester, requester.buildNumeric(_name, 482, requester.getNick(), chanName + " :You're not channel operator"));
         return;
     }
 
+    // Find target user
     int targetFd = -1;
     for (std::map<int, Client>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
         if (it->second.getNick() == nickTarget) {
@@ -280,8 +518,20 @@ void Server::handleInvite(Client& requester, const std::string& chanName, const 
         return;
     }
 
-    chan.addClient(targetFd);
-    sendLine(_clients[targetFd], ":" + requester.getNick() + "!" + requester.getNick() + "@" + requester.getIp() +
+    // Check if target is already on channel
+    if (chan.hasClient(targetFd)) {
+        sendLine(requester, requester.buildNumeric(_name, 443, requester.getNick(), nickTarget + " " + chanName + " :is already on channel"));
+        return;
+    }
+
+    // Add to invited list (does NOT auto-join)
+    chan.addInvite(targetFd);
+
+    // Send RPL_INVITING to requester
+    sendLine(requester, requester.buildNumeric(_name, 341, requester.getNick(), nickTarget + " " + chanName));
+
+    // Send INVITE message to target
+    sendLine(_clients[targetFd], ":" + requester.getNick() + "!" + requester.getUser() + "@" + requester.getIp() +
                               " INVITE " + nickTarget + " :" + chanName);
 }
 
@@ -310,9 +560,22 @@ void Server::handleKick(Client& requester, const std::string& chanName, const st
         return;
     }
 
+    // Broadcast KICK to all channel members
+    const std::set<int>& members = chan.getClients();
+    std::string kickMsg;
+    if (reason.empty()) {
+        kickMsg = ":" + requester.getNick() + "!" + requester.getUser() + "@" + requester.getIp() +
+                  " KICK " + chanName + " " + nickTarget;
+    } else {
+        kickMsg = ":" + requester.getNick() + "!" + requester.getUser() + "@" + requester.getIp() +
+                  " KICK " + chanName + " " + nickTarget + " :" + reason;
+    }
+
+    for (std::set<int>::const_iterator it = members.begin(); it != members.end(); ++it) {
+        sendLine(_clients[*it], kickMsg);
+    }
+
     chan.removeClient(targetFd);
-    sendLine(_clients[targetFd], ":" + requester.getNick() + "!" + requester.getNick() + "@" + requester.getIp() +
-                              " KICK " + chanName + " " + nickTarget + " :" + reason);
 }
 
 /* MODE */
@@ -328,33 +591,94 @@ void Server::handleMode(Client& requester, const std::string& chanName, const st
         return;
     }
 
+    bool adding = true;
+    std::string appliedModes;
+    std::string appliedParams;
+
     for (size_t i = 0; i < modes.size(); ++i) {
         char c = modes[i];
+        if (c == '+') {
+            adding = true;
+            continue;
+        } else if (c == '-') {
+            adding = false;
+            continue;
+        }
+
         switch (c) {
-            case 'i': chan.setInviteOnly(true); break;
-            case 't': chan.setTopicOnlyOps(true); break;
-            case 'k': if (!param.empty()) chan.setKey(param); break;
+            case 'i': 
+                chan.setInviteOnly(adding);
+                appliedModes += c;
+                break;
+            case 't': 
+                chan.setTopicOnlyOps(adding);
+                appliedModes += c;
+                break;
+            case 'k': 
+                if (adding && !param.empty()) {
+                    chan.setKey(param);
+                    appliedModes += c;
+                    appliedParams = param;
+                } else if (!adding) {
+                    chan.setKey("");
+                    appliedModes += c;
+                }
+                break;
             case 'l': 
-                if (!param.empty()) {
+                if (adding && !param.empty()) {
                     std::stringstream ss(param);
                     int limit = 0;
                     ss >> limit;
-                    chan.setLimit(limit);
+                    if (limit > 0) {
+                        chan.setLimit(limit);
+                        appliedModes += c;
+                        appliedParams = param;
+                    }
+                } else if (!adding) {
+                    chan.setLimit(0);
+                    appliedModes += c;
                 }
                 break;
             case 'o': {
-                int targetFd = -1;
-                for (std::map<int, Client>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
-                    if (it->second.getNick() == param) { targetFd = it->first; break; }
+                if (!param.empty()) {
+                    int targetFd = -1;
+                    for (std::map<int, Client>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
+                        if (it->second.getNick() == param) { 
+                            targetFd = it->first; 
+                            break; 
+                        }
+                    }
+                    if (targetFd >= 0 && chan.hasClient(targetFd)) {
+                        if (adding) {
+                            chan.addOperator(targetFd);
+                        } else {
+                            chan.removeOperator(targetFd);
+                        }
+                        appliedModes += c;
+                        appliedParams = param;
+                    }
                 }
-                if (targetFd >= 0) chan.addOperator(targetFd);
                 break;
             }
+            default:
+                // Unknown mode, ignore
+                break;
         }
     }
 
-    sendLine(requester, ":" + requester.getNick() + "!" + requester.getNick() + "@" + requester.getIp() +
-                     " MODE " + chanName + " " + modes + " " + param);
+    // Broadcast MODE change to all channel members
+    if (!appliedModes.empty()) {
+        std::string modeStr = (adding ? "+" : "-") + appliedModes;
+        if (!appliedParams.empty()) {
+            modeStr += " " + appliedParams;
+        }
+
+        const std::set<int>& members = chan.getClients();
+        for (std::set<int>::const_iterator it = members.begin(); it != members.end(); ++it) {
+            sendLine(_clients[*it], ":" + requester.getNick() + "!" + requester.getUser() + "@" + requester.getIp() +
+                              " MODE " + chanName + " " + modeStr);
+        }
+    }
 }
 
 /* TOPIC */
@@ -370,6 +694,7 @@ void Server::handleTopic(Client& requester, const std::string& chanName, const s
         return;
     }
 
+    // If newTopic is provided, set it
     if (!newTopic.empty()) {
         if (chan.getTopicOnlyOps() && !chan.isOperator(requester.getFd())) {
             sendLine(requester, requester.buildNumeric(_name, 482, requester.getNick(), chanName + " :You're not channel operator"));
@@ -377,13 +702,15 @@ void Server::handleTopic(Client& requester, const std::string& chanName, const s
         }
         chan.setTopic(newTopic);
 
+        // Broadcast TOPIC change to all channel members
         const std::set<int>& members = chan.getClients();
         for (std::set<int>::const_iterator it = members.begin(); it != members.end(); ++it) {
             int fd = *it;
-            sendLine(_clients[fd], ":" + requester.getNick() + "!" + requester.getNick() + "@" + requester.getIp() +
+            sendLine(_clients[fd], ":" + requester.getNick() + "!" + requester.getUser() + "@" + requester.getIp() +
                               " TOPIC " + chanName + " :" + newTopic);
         }
     } else {
+        // Query topic
         if (chan.getTopic().empty())
             sendLine(requester, requester.buildNumeric(_name, 331, requester.getNick(), chanName + " :No topic is set"));
         else
@@ -393,6 +720,19 @@ void Server::handleTopic(Client& requester, const std::string& chanName, const s
 
 /* REMOVE CLIENT */
 void Server::removeClient(int fd) {
+    // Remove client from all channels
+    for (std::map<std::string, Channel>::iterator it = _channels.begin(); it != _channels.end(); ) {
+        it->second.removeClient(fd);
+        // Remove empty channels
+        if (it->second.getClients().empty()) {
+            std::map<std::string, Channel>::iterator toErase = it;
+            ++it;
+            _channels.erase(toErase);
+        } else {
+            ++it;
+        }
+    }
+
     ::close(fd);
     _clients.erase(fd);
 

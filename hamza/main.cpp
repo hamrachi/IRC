@@ -11,7 +11,7 @@
 /* ************************************************************************** */
 
 #include "Server.hpp"
-// #include <stdexcept>
+#include <stdexcept>
 
 static int toInt(char *s)
 {
