@@ -141,8 +141,11 @@ IRCMessage Client::parseLine(const std::string &line)
                      tokens.push_back(cur);
                         cur.clear();
                     }
+                    msg.hasTrailingColon = true;
                     if (i + 1 < line.size())
                         tokens.push_back(line.substr(i + 1));
+                    else
+                        tokens.push_back("");  // empty trailing after colon
                     trailing = true;
                     break;
                 }

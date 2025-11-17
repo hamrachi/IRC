@@ -30,7 +30,7 @@ class Client;
 class Channel;
 
 class Server{
-private:
+public:
     int _listenFd;
     std::string _name;
     int _port;
@@ -39,25 +39,18 @@ private:
     std::map<std::string, Channel> _channels;
     std::vector<struct pollfd> pfds;
     struct sockaddr_in _claddr;
-
-public:
     Server(const std::string& name, int port, const std::string& pass);
     void run();
     void initSocket();
     void acceptNewClient(std::vector<struct pollfd>& pfds);
     void receiveFromClient(int clientFd);
     void removeClient(int fd);
+    void stop();
     void handleMessage(Client& cli, const IRCMessage& m);
     void sendLine(Client& cli, const std::string& line);
     void sendWelcome(Client& cli);
     bool isValidNick(const std::string& s) const;
     bool isNickTaken(const std::string& s, int exceptFd) const;
-
-    // channel commands
-    void handleInvite(Client& requester, const std::string& chanName, const std::string& nickTarget);
-    void handleKick(Client& requester, const std::string& chanName, const std::string& nickTarget, const std::string& reason = "");
-    void handleMode(Client& requester, const std::string& chanName, const std::string& modes, const std::string& param = "");
-    void handleTopic(Client& requester, const std::string& chanName, const std::string& newTopic = "");
 };
 
 #endif

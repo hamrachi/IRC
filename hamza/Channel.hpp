@@ -16,6 +16,7 @@
 #include <string>
 #include <set>
 #include <map>
+#include <ctime>
 
 class Channel {
 private:
@@ -24,43 +25,47 @@ private:
     std::set<int> _operators;      // client FDs with operator privileges
     std::set<int> _invited;        // client FDs invited to the channel
     std::string _topic;
+    std::string _topic_who;        // nickname of who set the topic
+    time_t _topic_time;            // timestamp when topic was set
     std::string _key;              // password
     size_t _limit;                 // user limit
     bool _inviteOnly;
     bool _topicOnlyOps;
 
 public:
-    Channel() : _name(""), _limit(0), _inviteOnly(false), _topicOnlyOps(false) {}
-    Channel(const std::string& name) : _name(name), _limit(0), _inviteOnly(false), _topicOnlyOps(false) {}
+    Channel();
+    Channel(const std::string& name);
 
-    const std::string& getName() const { return _name; }
-    const std::string& getTopic() const { return _topic; }
-    void setTopic(const std::string& t) { _topic = t; }
+    const std::string& getName() const;
+    const std::string& getTopic() const;
+    const std::string& getTopicWho() const;
+    time_t getTopicTime() const;
+    void setTopic(const std::string& t, const std::string& who);
 
-    void addClient(int fd) { _clients.insert(fd); }
-    void removeClient(int fd) { _clients.erase(fd); _operators.erase(fd); }
-    bool hasClient(int fd) const { return _clients.count(fd); }
-    const std::set<int>& getClients() const { return _clients; }
+    void addClient(int fd);
+    void removeClient(int fd);
+    bool hasClient(int fd) const;
+    const std::set<int>& getClients() const;
 
-    void addOperator(int fd) { _operators.insert(fd); }
-    void removeOperator(int fd) { _operators.erase(fd); }
-    bool isOperator(int fd) const { return _operators.count(fd); }
+    void addOperator(int fd);
+    void removeOperator(int fd);
+    bool isOperator(int fd) const;
 
-    void setKey(const std::string& key) { _key = key; }
-    const std::string& getKey() const { return _key; }
+    void setKey(const std::string& key);
+    const std::string& getKey() const;
 
-    void setLimit(size_t l) { _limit = l; }
-    size_t getLimit() const { return _limit; }
+    void setLimit(size_t l);
+    size_t getLimit() const;
 
-    void setInviteOnly(bool b) { _inviteOnly = b; }
-    bool getInviteOnly() const { return _inviteOnly; }
+    void setInviteOnly(bool b);
+    bool getInviteOnly() const;
 
-    void setTopicOnlyOps(bool b) { _topicOnlyOps = b; }
-    bool getTopicOnlyOps() const { return _topicOnlyOps; }
+    void setTopicOnlyOps(bool b);
+    bool getTopicOnlyOps() const;
 
-    void addInvite(int fd) { _invited.insert(fd); }
-    void removeInvite(int fd) { _invited.erase(fd); }
-    bool isInvited(int fd) const { return _invited.count(fd); }
+    void addInvite(int fd);
+    void removeInvite(int fd);
+    bool isInvited(int fd) const;
 };
 
 #endif

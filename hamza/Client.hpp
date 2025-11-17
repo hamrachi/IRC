@@ -22,6 +22,9 @@
 struct IRCMessage {
     std::string command;
     std::vector<std::string> params;
+    bool hasTrailingColon;  // true if message had a trailing ':'
+    
+    IRCMessage() : hasTrailingColon(false) {}
 };
 
 class Client {

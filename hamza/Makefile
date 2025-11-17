@@ -3,11 +3,11 @@ CXX = c++
 CXXFLAGS = -Wall -Wextra -Werror -std=c++98
 
 # Files
-SRCS = main.cpp Server.cpp Client.cpp Channel.cpp
+SRCS = main.cpp Server.cpp Client.cpp Channel.cpp cmd_join.cpp cmd_privmsg.cpp cmd_mode.cpp cmd_topic.cpp cmd_invite.cpp cmd_kick.cpp
 OBJS = $(SRCS:.cpp=.o)
 
 # Headers
-HEADERS = Server.hpp Client.hpp Channel.hpp
+HEADERS = Server.hpp Client.hpp Channel.hpp Commands.hpp
 
 all: $(NAME)
 
