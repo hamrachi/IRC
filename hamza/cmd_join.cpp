@@ -22,6 +22,12 @@ void cmd_join(Server* server, Client& cli, const IRCMessage& msg) {
     }
 
     std::string chanList = msg.params[0];
+    // if (chanList[0] == '#' && chanList[1] == ',' )
+    // {
+    //     server ->sendLine(cli, cli.buildNumeric(server->_name, 476, cli.getNick(), chanList + " :Bad channel mask"));
+    //     return;
+    // }
+    std ::cout << "chanList: " << chanList << std::endl;
     if (chanList.empty()) {
         server->sendLine(cli, cli.buildNumeric(server->_name, 461, cli.getNick(), "JOIN :Not enough parameters"));
         return;
@@ -130,7 +136,8 @@ void cmd_join(Server* server, Client& cli, const IRCMessage& msg) {
             continue;
         }
 
-        if (!chanExists || chan.getClients().empty()) {
+        if (!chanExists || chan.getClients().empty()) 
+        {
             chan.addOperator(cli.getFd());
         }
 

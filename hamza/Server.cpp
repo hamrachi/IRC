@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   Server.cpp                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: hamrachi <hamrachi@student.42.fr>          +#+  +:+       +#+        */
+/*   By: eel-alao <eel-alao@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/26 18:32:13 by hamrachi          #+#    #+#             */
-/*   Updated: 2025/09/09 20:00:00 by hamrachi         ###   ########.fr       */
+/*   Updated: 2025/11/17 18:44:27 by eel-alao         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -21,7 +21,7 @@
 #include <sstream> // for stringstream
 
 // termination flag set by signal handler in main.cpp
-extern volatile sig_atomic_t g_terminate;
+bool g_terminate = false;
 
 Server::Server(const std::string &name, int port, const std::string &pass)
 : _listenFd(-1), _name(name), _port(port), _passWord(pass) {}

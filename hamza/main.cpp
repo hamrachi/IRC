@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   main.cpp                                           :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: hamrachi <hamrachi@student.42.fr>          +#+  +:+       +#+        */
+/*   By: eel-alao <eel-alao@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/26 18:36:19 by hamrachi          #+#    #+#             */
-/*   Updated: 2025/08/31 17:38:13 by hamrachi         ###   ########.fr       */
+/*   Updated: 2025/11/17 16:14:24 by eel-alao         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,11 +14,12 @@
 #include <stdexcept>
 #include <csignal>
 
-volatile sig_atomic_t g_terminate = 0;
+// bool sig_atomic_t g_terminate = false;
 
-static void handle_sig(int) {
-    g_terminate = 1;
-}
+// static void handle_sig(int) 
+// {
+//     g_terminate = 1;
+// }
 
 static int toInt(char *s)
 {
@@ -81,18 +82,18 @@ int main(int ac, char **av)
 		Server srv("ft_irc", port, password);
 
 		// Install signal handlers for graceful shutdown
-		std::signal(SIGINT, handle_sig);
-		std::signal(SIGTERM, handle_sig);
+		// std::signal(SIGINT, handle_sig);
+		// std::signal(SIGTERM, handle_sig);
 
 		// Initialize socket and run server
 		srv.initSocket();
 		srv.run();
 
 		// Cleanup on termination
-		if (g_terminate)
-		{
-			srv.stop();
-		}
+		// if (g_terminate)
+		// {
+		// 	srv.stop();
+		// }
 
 		return 0;
 	}
